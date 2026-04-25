@@ -1,18 +1,17 @@
-import { CodexToolHandler } from '../tools/handlers.js';
+import type { CodexToolHandler as CodexToolHandlerType } from '../tools/handlers.js';
 import { InMemorySessionStorage } from '../session/storage.js';
-import { executeCommand } from '../utils/command.js';
 
 // Mock the command execution
 jest.mock('../utils/command.js', () => ({
   executeCommand: jest.fn(),
 }));
 
-const mockedExecuteCommand = executeCommand as jest.MockedFunction<
-  typeof executeCommand
->;
-
 describe('Context Building Analysis', () => {
-  let handler: CodexToolHandler;
+  let CodexToolHandler: typeof import('../tools/handlers.js').CodexToolHandler;
+  let handler: CodexToolHandlerType;
+  let mockedExecuteCommand: jest.MockedFunction<
+    typeof import('../utils/command.js').executeCommand
+  >;
   let sessionStorage: InMemorySessionStorage;
   let originalStructuredContent: string | undefined;
 
@@ -28,7 +27,14 @@ describe('Context Building Analysis', () => {
     }
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    jest.resetModules();
+    process.env.STRUCTURED_CONTENT_ENABLED = '1';
+    ({ CodexToolHandler } = await import('../tools/handlers.js'));
+    const commandModule = await import('../utils/command.js');
+    mockedExecuteCommand = commandModule.executeCommand as jest.MockedFunction<
+      typeof commandModule.executeCommand
+    >;
     sessionStorage = new InMemorySessionStorage();
     handler = new CodexToolHandler(sessionStorage);
     mockedExecuteCommand.mockClear();
@@ -36,7 +42,6 @@ describe('Context Building Analysis', () => {
       stdout: 'Test response',
       stderr: '',
     });
-    process.env.STRUCTURED_CONTENT_ENABLED = '1';
   });
 
   test('should build enhanced prompt correctly', async () => {

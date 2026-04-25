@@ -39,11 +39,7 @@ const defaultContext: ToolHandlerContext = {
   sendProgress: async () => {},
 };
 
-const isStructuredContentEnabled = (): boolean => {
-  const raw = process.env.STRUCTURED_CONTENT_ENABLED;
-  if (!raw) return false;
-  return ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase());
-};
+const STRUCTURED_CONTENT_ENABLED = ['1', 'true', 'yes', 'on'].includes((process.env.STRUCTURED_CONTENT_ENABLED ?? '').toLowerCase());
 
 function getToolContext(context?: ToolHandlerContext): ToolHandlerContext {
   return context ?? defaultContext;
@@ -61,7 +57,7 @@ function getCommandResponse(
 }
 
 class CommandBackedToolHandler {
-  protected readonly structuredContentEnabled = isStructuredContentEnabled();
+  protected readonly structuredContentEnabled = STRUCTURED_CONTENT_ENABLED;
 
   protected async executeCodexCommand(
     cmdArgs: string[],
