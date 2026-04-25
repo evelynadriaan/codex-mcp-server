@@ -22,9 +22,11 @@ export class CodexMcpServer {
   private readonly server: Server;
   private readonly config: ServerConfig;
   private callQueue: Promise<void> = Promise.resolve();
+  private readonly toolTimeoutMs: number;
 
   constructor(config: ServerConfig) {
     this.config = config;
+    this.toolTimeoutMs = this.getToolTimeoutMs();
     this.server = new Server(
       {
         name: config.name,
@@ -79,21 +81,25 @@ export class CodexMcpServer {
       };
 
       try {
-        return await new Promise<ToolResult>((resolve, reject) => {
-          this.callQueue = this.callQueue.then(async () => {
-            try {
-              if (!this.isValidToolName(name)) {
-                throw new Error(`Unknown tool: ${name}`);
-              }
+        const nextCall = this.callQueue.then(async () => {
+          if (!this.isValidToolName(name)) {
+            throw new Error(`Unknown tool: ${name}`);
+          }
 
-              const handler = toolHandlers[name];
-              const context = createProgressContext();
-              resolve(await handler.execute(args, context));
-            } catch (err) {
-              reject(err);
-            }
-          });
+          const handler = toolHandlers[name];
+          const context = createProgressContext();
+          return await this.withTimeout(
+            handler.execute(args, context),
+            this.toolTimeoutMs
+          );
         });
+
+        this.callQueue = nextCall.then(
+          () => undefined,
+          () => undefined
+        );
+
+        return await nextCall;
       } catch (error) {
         return {
           content: [
@@ -110,6 +116,41 @@ export class CodexMcpServer {
 
   private isValidToolName(name: string): name is ToolName {
     return Object.values(TOOLS).includes(name as ToolName);
+  }
+
+  private getToolTimeoutMs(): number {
+    const rawTimeout = process.env.CODEX_TOOL_TIMEOUT_MS;
+    if (!rawTimeout) {
+      return 120_000;
+    }
+
+    const parsedTimeout = Number.parseInt(rawTimeout, 10);
+    if (Number.isFinite(parsedTimeout) && parsedTimeout > 0) {
+      return parsedTimeout;
+    }
+
+    return 120_000;
+  }
+
+  private async withTimeout<T>(
+    operation: Promise<T>,
+    timeoutMs: number
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const timeoutPromise = new Promise<never>((_resolve, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(`Tool call timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      });
+
+      return await Promise.race([operation, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   async start(): Promise<void> {
