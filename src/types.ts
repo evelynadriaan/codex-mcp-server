@@ -152,5 +152,6 @@ export type ProgressToken = string | number;
 // Context passed to tool handlers for sending progress notifications
 export interface ToolHandlerContext {
   progressToken?: ProgressToken;
+  abortSignal?: AbortSignal;
   sendProgress: (message: string, progress?: number, total?: number) => Promise<void>;
 }

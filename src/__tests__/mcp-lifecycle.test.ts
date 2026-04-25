@@ -43,9 +43,19 @@ exit 0
 function createTimeoutCodexStub(): string {
   const stubDir = mkdtempSync(path.join(tmpdir(), 'codex-mcp-timeout-'));
   const stubPath = path.join(stubDir, 'codex');
+  const lockDir = path.join(stubDir, 'active.lock');
   const stubScript = `#!/bin/sh
+LOCK_DIR=${JSON.stringify(lockDir)}
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+printf "Not connected\\n" 1>&2
+exit 1
+fi
+cleanup() {
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 if printf "%s" "$*" | grep -q "slow-timeout"; then
-  sleep 0.2
+  sleep 5
 else
   sleep 0.01
 fi
@@ -233,7 +243,7 @@ describe('MCP server lifecycle', () => {
     expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
   });
 
-  test('times out and continues queue on slow call', async () => {
+  test('kills child process on timeout', async () => {
     const distPath = path.join(process.cwd(), 'dist', 'index.js');
     await ensureBuild(distPath);
 

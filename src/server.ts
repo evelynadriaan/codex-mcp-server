@@ -54,10 +54,11 @@ export class CodexMcpServer {
       const progressToken = request.params._meta?.progressToken as ProgressToken | undefined;
 
       // Create progress sender that uses MCP notifications
-      const createProgressContext = (): ToolHandlerContext => {
+      const createProgressContext = (abortSignal?: AbortSignal): ToolHandlerContext => {
         let progressCount = 0;
         return {
           progressToken,
+          abortSignal,
           sendProgress: async (message: string, progress?: number, total?: number) => {
             if (!progressToken) return;
 
@@ -81,25 +82,38 @@ export class CodexMcpServer {
       };
 
       try {
-        const nextCall = this.callQueue.then(async () => {
-          if (!this.isValidToolName(name)) {
-            throw new Error(`Unknown tool: ${name}`);
-          }
+        return await new Promise<ToolResult>((resolve, reject) => {
+          this.callQueue = this.callQueue.then(async () => {
+            let operation: Promise<ToolResult> | undefined;
 
-          const handler = toolHandlers[name];
-          const context = createProgressContext();
-          return await this.withTimeout(
-            handler.execute(args, context),
-            this.toolTimeoutMs
-          );
+            try {
+              if (!this.isValidToolName(name)) {
+                throw new Error(`Unknown tool: ${name}`);
+              }
+
+              const handler = toolHandlers[name];
+              const controller = new AbortController();
+              const context = createProgressContext(controller.signal);
+              operation = handler.execute(args, context);
+
+              resolve(
+                await this.withTimeout(
+                  operation,
+                  this.toolTimeoutMs,
+                  controller
+                )
+              );
+            } catch (err) {
+              reject(err);
+            } finally {
+              // Keep the queue blocked until the child process actually exits.
+              await operation?.then(
+                () => undefined,
+                () => undefined
+              );
+            }
+          });
         });
-
-        this.callQueue = nextCall.then(
-          () => undefined,
-          () => undefined
-        );
-
-        return await nextCall;
       } catch (error) {
         return {
           content: [
@@ -134,13 +148,15 @@ export class CodexMcpServer {
 
   private async withTimeout<T>(
     operation: Promise<T>,
-    timeoutMs: number
+    timeoutMs: number,
+    controller?: AbortController
   ): Promise<T> {
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
     try {
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
         timeoutHandle = setTimeout(() => {
+          controller?.abort();
           reject(new Error(`Tool call timed out after ${timeoutMs}ms`));
         }, timeoutMs);
       });
