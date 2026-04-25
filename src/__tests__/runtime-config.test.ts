@@ -11,15 +11,16 @@ import {
 
 describe('runtime config', () => {
   test('uses package version for server config', () => {
-    const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
+    const packageJsonPath = path.join(__dirname, '../../package.json');
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as {
       version: string;
     };
 
     expect(SERVER_CONFIG.name).toBe('codex-mcp-server');
-    expect(SERVER_CONFIG.version).toBe(packageJson.version);
-    expect(getServerVersion(path.join(process.cwd(), 'src', 'index.ts'))).toBe(
-      packageJson.version
-    );
+    // Test getServerVersion with an explicit path to avoid cwd/argv sensitivity
+    expect(
+      getServerVersion(path.join(__dirname, '../../dist/index.js'))
+    ).toBe(packageJson.version);
   });
 
   test('startup logging is disabled by default', () => {

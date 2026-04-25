@@ -159,7 +159,7 @@ describe('Codex MCP Server', () => {
       const result = {
         content: [{ type: 'text', text: 'ok', _meta: { threadId: 'th_123' } }],
         structuredContent: { threadId: 'th_123' },
-        _meta: { model: 'gpt-5.3-codex' },
+        _meta: { model: 'gpt-5.4' },
       };
 
       const parsed = CallToolResultSchema.safeParse(result);

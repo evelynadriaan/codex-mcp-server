@@ -16,8 +16,9 @@ export type ToolName = typeof TOOLS[keyof typeof TOOLS];
 export const DEFAULT_CODEX_MODEL = 'gpt-5.4' as const;
 export const CODEX_DEFAULT_MODEL_ENV_VAR = 'CODEX_DEFAULT_MODEL' as const;
 
-// Available model options (for documentation/reference)
-export const AVAILABLE_CODEX_MODELS = [
+// Common model examples shown in tool descriptions. Validation stays free-form
+// so callers can pass any Codex CLI-supported model string.
+const DOCUMENTED_CODEX_MODELS = [
   'gpt-5.4',
   'gpt-5.3-codex',
   'gpt-5.2-codex',
@@ -32,7 +33,7 @@ export const AVAILABLE_CODEX_MODELS = [
 
 // Helper function to generate model description
 export const getModelDescription = (toolType: 'codex' | 'review') => {
-  const modelList = AVAILABLE_CODEX_MODELS.join(', ');
+  const modelList = DOCUMENTED_CODEX_MODELS.join(', ');
   if (toolType === 'codex') {
     return `Specify which model to use (defaults to ${DEFAULT_CODEX_MODEL}). Options: ${modelList}`;
   }
