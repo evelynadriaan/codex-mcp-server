@@ -18,7 +18,18 @@ async function ensureBuild(distPath: string): Promise<void> {
 function createCodexStub(): string {
   const stubDir = mkdtempSync(path.join(tmpdir(), 'codex-mcp-life-'));
   const stubPath = path.join(stubDir, 'codex');
+  const lockDir = path.join(stubDir, 'active.lock');
   const stubScript = `#!/bin/sh
+LOCK_DIR=${JSON.stringify(lockDir)}
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+printf "Not connected\\n" 1>&2
+exit 1
+fi
+cleanup() {
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+sleep 0.2
 printf "stub stdout\\n"
 printf "thread id: th_lifecycle_123\\n" 1>&2
 printf "session id: sess_lifecycle_123\\n" 1>&2
@@ -174,6 +185,31 @@ describe('MCP server lifecycle', () => {
       content: Array<{ text: string }>;
     };
 
+    expect(secondResponse.content[0]?.text).toBe('stub stdout\n');
+    expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
+  });
+
+  test('serializes concurrent tools/call requests', async () => {
+    const firstResponsePromise = sendRequest({
+      jsonrpc: JSONRPC_VERSION,
+      id: 5,
+      method: 'tools/call',
+      params: { name: 'codex', arguments: { prompt: 'echo concurrent one' } },
+    });
+
+    const secondResponsePromise = sendRequest({
+      jsonrpc: JSONRPC_VERSION,
+      id: 6,
+      method: 'tools/call',
+      params: { name: 'codex', arguments: { prompt: 'echo concurrent two' } },
+    });
+
+    const [firstResponse, secondResponse] = (await Promise.all([
+      firstResponsePromise,
+      secondResponsePromise,
+    ])) as Array<{ content: Array<{ text: string }> }>;
+
+    expect(firstResponse.content[0]?.text).toBe('stub stdout\n');
     expect(secondResponse.content[0]?.text).toBe('stub stdout\n');
     expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
   });

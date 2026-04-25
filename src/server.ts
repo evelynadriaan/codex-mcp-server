@@ -9,6 +9,7 @@ import chalk from 'chalk';
 import {
   type ServerConfig,
   type ToolName,
+  type ToolResult,
   type ToolHandlerContext,
   type ProgressToken,
   TOOLS,
@@ -20,6 +21,7 @@ import { toolHandlers } from './tools/handlers.js';
 export class CodexMcpServer {
   private readonly server: Server;
   private readonly config: ServerConfig;
+  private callQueue: Promise<void> = Promise.resolve();
 
   constructor(config: ServerConfig) {
     this.config = config;
@@ -77,13 +79,21 @@ export class CodexMcpServer {
       };
 
       try {
-        if (!this.isValidToolName(name)) {
-          throw new Error(`Unknown tool: ${name}`);
-        }
+        return await new Promise<ToolResult>((resolve, reject) => {
+          this.callQueue = this.callQueue.then(async () => {
+            try {
+              if (!this.isValidToolName(name)) {
+                throw new Error(`Unknown tool: ${name}`);
+              }
 
-        const handler = toolHandlers[name];
-        const context = createProgressContext();
-        return await handler.execute(args, context);
+              const handler = toolHandlers[name];
+              const context = createProgressContext();
+              resolve(await handler.execute(args, context));
+            } catch (err) {
+              reject(err);
+            }
+          });
+        });
       } catch (error) {
         return {
           content: [
