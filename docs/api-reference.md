@@ -101,15 +101,17 @@ Execute Codex CLI with advanced session management and model control.
 | `prompt` | string | ✅ | - | The coding task, question, or analysis request |
 | `sessionId` | string | ❌ | - | Session ID for conversational context |
 | `resetSession` | boolean | ❌ | `false` | Reset session history before processing |
-| `model` | string | ❌ | `gpt-5.2-codex` | Model to use for processing |
+| `model` | string | ❌ | `gpt-5.3-codex` | Model to use for processing |
 | `reasoningEffort` | enum | ❌ | - | Control reasoning depth |
 | `sandbox` | enum | ❌ | - | Sandbox policy: `read-only`, `workspace-write`, `danger-full-access` |
 | `fullAuto` | boolean | ❌ | `false` | Enable full-auto mode (sandboxed automatic execution) |
 | `workingDirectory` | string | ❌ | - | Working directory for the agent |
 | `callbackUri` | string | ❌ | - | Static MCP callback URI passed via env to Codex |
+| `timeoutMs` | integer | ❌ | `CODEX_TOOL_TIMEOUT_MS` or `120000` | Per-call timeout override in milliseconds |
 
 #### Model Options
-- `gpt-5.2-codex` (default) - Latest specialized coding model optimized for agentic tasks
+- `gpt-5.3-codex` (default) - Current specialized coding model optimized for agentic tasks
+- `gpt-5.2-codex` - Previous specialized coding model
 - `gpt-5.1-codex` - Previous coding model version
 - `gpt-5.1-codex-max` - Enhanced coding model for complex tasks
 - `gpt-5-codex` - Base GPT-5 coding model
@@ -174,6 +176,14 @@ The `codex` tool advertises an `outputSchema` that describes the structure of `s
 }
 ```
 
+**With Timeout Override:**
+```json
+{
+  "prompt": "Run a long migration analysis",
+  "timeoutMs": 300000
+}
+```
+
 **Session Management:**
 ```json
 {
@@ -208,7 +218,7 @@ Run AI-powered code reviews against your repository using Codex CLI.
 | `base` | string | ❌ | - | Review changes against a specific base branch |
 | `commit` | string | ❌ | - | Review changes introduced by a specific commit SHA |
 | `title` | string | ❌ | - | Title to display in the review summary |
-| `model` | string | ❌ | `gpt-5.2-codex` | Model to use for the review (passed via `-c model="..."`) |
+| `model` | string | ❌ | `gpt-5.3-codex` | Model to use for the review (passed via `-c model="..."`) |
 | `workingDirectory` | string | ❌ | - | Working directory to run the review in (passed via `-C`) |
 
 #### Examples
@@ -414,8 +424,9 @@ interface ErrorResponse {
 - **Context Optimization**: Recent turns only (last 2) for fallback context
 
 ### Response Optimization
-- **Model Selection**: Default `gpt-5.2-codex` optimized for agentic coding
+- **Model Selection**: Default `gpt-5.3-codex` optimized for agentic coding
 - **Reasoning Control**: Adjust effort based on task complexity
+- **Timeout Control**: Use `timeoutMs` per request or `CODEX_TOOL_TIMEOUT_MS` globally
 - **Native Resume**: Preferred over manual context building
 
 ### Scalability

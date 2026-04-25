@@ -9,6 +9,7 @@ const execAsync = promisify(exec);
 
 const JSONRPC_VERSION = '2.0';
 const TEST_TIMEOUT_MS = 10000;
+type ExitSignal = string | null;
 
 async function ensureBuild(distPath: string): Promise<void> {
   if (existsSync(distPath)) return;
@@ -76,7 +77,7 @@ describe('MCP server lifecycle', () => {
   let stubDir: string | null = null;
   let buffer = '';
   let exitCode: number | null = null;
-  let exitSignal: NodeJS.Signals | null = null;
+  let exitSignal: ExitSignal = null;
   const pending = new Map<number, (payload: unknown) => void>();
 
   const sendRequest = (request: Record<string, unknown>) =>
@@ -200,10 +201,16 @@ describe('MCP server lifecycle', () => {
     };
 
     expect(firstResponse.content[0]?.text).toBe('stub stdout\n');
-    expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
+    expect({ exitCode, exitSignal }).toEqual({
+      exitCode: null,
+      exitSignal: null,
+    });
 
     await new Promise((resolve) => globalThis.setTimeout(resolve, 250));
-    expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
+    expect({ exitCode, exitSignal }).toEqual({
+      exitCode: null,
+      exitSignal: null,
+    });
 
     const secondResponse = (await sendRequest({
       jsonrpc: JSONRPC_VERSION,
@@ -215,7 +222,10 @@ describe('MCP server lifecycle', () => {
     };
 
     expect(secondResponse.content[0]?.text).toBe('stub stdout\n');
-    expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
+    expect({ exitCode, exitSignal }).toEqual({
+      exitCode: null,
+      exitSignal: null,
+    });
   });
 
   test('serializes concurrent tools/call requests', async () => {
@@ -240,7 +250,10 @@ describe('MCP server lifecycle', () => {
 
     expect(firstResponse.content[0]?.text).toBe('stub stdout\n');
     expect(secondResponse.content[0]?.text).toBe('stub stdout\n');
-    expect({ exitCode, exitSignal }).toEqual({ exitCode: null, exitSignal: null });
+    expect({ exitCode, exitSignal }).toEqual({
+      exitCode: null,
+      exitSignal: null,
+    });
   });
 
   test('kills child process on timeout', async () => {
@@ -251,7 +264,7 @@ describe('MCP server lifecycle', () => {
     let timeoutServer: ReturnType<typeof spawn> | null = null;
     let timeoutBuffer = '';
     let timeoutExitCode: number | null = null;
-    let timeoutExitSignal: NodeJS.Signals | null = null;
+    let timeoutExitSignal: ExitSignal = null;
     const timeoutPending = new Map<number, (payload: unknown) => void>();
 
     const sendTimeoutRequest = (request: Record<string, unknown>) =>
@@ -372,7 +385,155 @@ describe('MCP server lifecycle', () => {
         timeoutExitSignal: null,
       });
     } finally {
-      if (timeoutServer && timeoutExitCode === null && timeoutExitSignal === null) {
+      if (
+        timeoutServer &&
+        timeoutExitCode === null &&
+        timeoutExitSignal === null
+      ) {
+        timeoutServer.kill();
+        await new Promise((resolve) => timeoutServer?.once('exit', resolve));
+      }
+      rmSync(timeoutStubDir, { recursive: true, force: true });
+    }
+  });
+
+  test('uses per-call timeout override', async () => {
+    const distPath = path.join(process.cwd(), 'dist', 'index.js');
+    await ensureBuild(distPath);
+
+    const timeoutStubDir = createTimeoutCodexStub();
+    let timeoutServer: ReturnType<typeof spawn> | null = null;
+    let timeoutBuffer = '';
+    let timeoutExitCode: number | null = null;
+    let timeoutExitSignal: ExitSignal = null;
+    const timeoutPending = new Map<number, (payload: unknown) => void>();
+
+    const sendTimeoutRequest = (request: Record<string, unknown>) =>
+      new Promise<unknown>((resolve, reject) => {
+        if (!timeoutServer?.stdin) {
+          reject(new Error('Timeout override test server stdin not available'));
+          return;
+        }
+
+        const id = request.id as number;
+        const timer = globalThis.setTimeout(() => {
+          timeoutPending.delete(id);
+          reject(new Error(`Timed out waiting for response ${id}`));
+        }, TEST_TIMEOUT_MS);
+
+        timeoutPending.set(id, (payload) => {
+          globalThis.clearTimeout(timer);
+          resolve(payload);
+        });
+
+        timeoutServer.stdin.write(`${JSON.stringify(request)}\n`);
+      });
+
+    try {
+      timeoutServer = spawn(process.execPath, [distPath], {
+        env: {
+          ...process.env,
+          PATH: `${timeoutStubDir}${path.delimiter}${process.env.PATH}`,
+          CODEX_TOOL_TIMEOUT_MS: '9000',
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      timeoutServer.stdout?.setEncoding('utf8');
+      timeoutServer.stdout?.on('data', (chunk: string) => {
+        timeoutBuffer += chunk;
+        let newlineIndex = timeoutBuffer.indexOf('\n');
+
+        while (newlineIndex >= 0) {
+          const line = timeoutBuffer.slice(0, newlineIndex).trim();
+          timeoutBuffer = timeoutBuffer.slice(newlineIndex + 1);
+
+          if (line) {
+            try {
+              const payload = JSON.parse(line) as {
+                id?: number;
+                result?: unknown;
+              };
+
+              if (typeof payload.id === 'number') {
+                const resolver = timeoutPending.get(payload.id);
+                if (resolver) {
+                  resolver(payload.result ?? payload);
+                  timeoutPending.delete(payload.id);
+                }
+              }
+            } catch {
+              // Ignore non-JSON output
+            }
+          }
+
+          newlineIndex = timeoutBuffer.indexOf('\n');
+        }
+      });
+
+      timeoutServer.stderr?.on('data', () => {});
+      timeoutServer.on('exit', (code, signal) => {
+        timeoutExitCode = code;
+        timeoutExitSignal = signal;
+      });
+
+      await sendTimeoutRequest({
+        jsonrpc: JSONRPC_VERSION,
+        id: 200,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test-timeout-override', version: '1' },
+        },
+      });
+
+      timeoutServer.stdin?.write(
+        `${JSON.stringify({
+          jsonrpc: JSONRPC_VERSION,
+          method: 'notifications/initialized',
+          params: {},
+        })}\n`
+      );
+
+      const timedOutResponse = (await sendTimeoutRequest({
+        jsonrpc: JSONRPC_VERSION,
+        id: 201,
+        method: 'tools/call',
+        params: {
+          name: 'codex',
+          arguments: { prompt: 'slow-timeout', timeoutMs: 100 },
+        },
+      })) as {
+        content: Array<{ text: string }>;
+        isError?: boolean;
+      };
+
+      expect(timedOutResponse.isError).toBe(true);
+      expect(timedOutResponse.content[0]?.text).toContain(
+        'Tool call timed out after 100ms'
+      );
+
+      const secondResponse = (await sendTimeoutRequest({
+        jsonrpc: JSONRPC_VERSION,
+        id: 202,
+        method: 'tools/call',
+        params: { name: 'codex', arguments: { prompt: 'fast-after-timeout' } },
+      })) as {
+        content: Array<{ text: string }>;
+      };
+
+      expect(secondResponse.content[0]?.text).toBe('stub stdout\n');
+      expect({ timeoutExitCode, timeoutExitSignal }).toEqual({
+        timeoutExitCode: null,
+        timeoutExitSignal: null,
+      });
+    } finally {
+      if (
+        timeoutServer &&
+        timeoutExitCode === null &&
+        timeoutExitSignal === null
+      ) {
         timeoutServer.kill();
         await new Promise((resolve) => timeoutServer?.once('exit', resolve));
       }

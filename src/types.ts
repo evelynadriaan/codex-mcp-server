@@ -106,6 +106,7 @@ export const CodexToolSchema = z.object({
   fullAuto: z.boolean().optional(),
   workingDirectory: z.string().optional(),
   callbackUri: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
 });
 
 // Review tool schema

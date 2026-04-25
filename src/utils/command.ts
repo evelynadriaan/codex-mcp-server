@@ -37,6 +37,8 @@ export interface StreamingCommandOptions extends CommandOptions {
   onProgress?: ProgressCallback;
 }
 
+type KillSignal = 'SIGTERM' | 'SIGKILL';
+
 export async function executeCommand(
   file: string,
   args: string[] = [],
@@ -66,7 +68,7 @@ export async function executeCommand(
     const child = spawn(file, escapedArgs, spawnOptions);
 
     if (options?.signal) {
-      const killChild = (signal: NodeJS.Signals) => {
+      const killChild = (signal: KillSignal) => {
         child.kill(signal);
         if (!isWindows && child.pid) {
           try {
@@ -79,18 +81,21 @@ export async function executeCommand(
 
       if (options.signal.aborted) {
         killChild('SIGTERM');
-        const forceKillTimer = setTimeout(() => killChild('SIGKILL'), 2000);
-        child.once('exit', () => clearTimeout(forceKillTimer));
+        const forceKillTimer = globalThis.setTimeout(
+          () => killChild('SIGKILL'),
+          2000
+        );
+        child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
       } else {
         options.signal.addEventListener(
           'abort',
           () => {
             killChild('SIGTERM');
-            const forceKillTimer = setTimeout(
+            const forceKillTimer = globalThis.setTimeout(
               () => killChild('SIGKILL'),
               2000
             );
-            child.once('exit', () => clearTimeout(forceKillTimer));
+            child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
           },
           { once: true }
         );
@@ -210,7 +215,7 @@ export async function executeCommandStreaming(
     const child = spawn(file, escapedArgs, spawnOptions);
 
     if (options?.signal) {
-      const killChild = (signal: NodeJS.Signals) => {
+      const killChild = (signal: KillSignal) => {
         child.kill(signal);
         if (!isWindows && child.pid) {
           try {
@@ -223,18 +228,21 @@ export async function executeCommandStreaming(
 
       if (options.signal.aborted) {
         killChild('SIGTERM');
-        const forceKillTimer = setTimeout(() => killChild('SIGKILL'), 2000);
-        child.once('exit', () => clearTimeout(forceKillTimer));
+        const forceKillTimer = globalThis.setTimeout(
+          () => killChild('SIGKILL'),
+          2000
+        );
+        child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
       } else {
         options.signal.addEventListener(
           'abort',
           () => {
             killChild('SIGTERM');
-            const forceKillTimer = setTimeout(
+            const forceKillTimer = globalThis.setTimeout(
               () => killChild('SIGKILL'),
               2000
             );
-            child.once('exit', () => clearTimeout(forceKillTimer));
+            child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
           },
           { once: true }
         );

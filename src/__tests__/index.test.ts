@@ -65,6 +65,13 @@ describe('Codex MCP Server', () => {
       expect(codexTool?.description).toContain('Execute Codex CLI');
     });
 
+    test('codex tool should expose timeout override parameter', () => {
+      const codexTool = toolDefinitions.find(
+        (tool) => tool.name === TOOLS.CODEX
+      );
+      expect(codexTool?.inputSchema.properties).toHaveProperty('timeoutMs');
+    });
+
     test('ping tool should have optional message parameter', () => {
       const pingTool = toolDefinitions.find((tool) => tool.name === TOOLS.PING);
       expect(pingTool).toBeDefined();

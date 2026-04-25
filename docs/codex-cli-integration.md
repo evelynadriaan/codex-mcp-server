@@ -71,10 +71,11 @@ This MCP server is optimized for **codex CLI v0.75.0 or later** for full feature
 - **MCP Parameter**: `workingDirectory` parameter in codex tool and review tool
 
 ### 5. Model Selection
-- **Default Model**: `gpt-5.2-codex` (optimal for agentic coding tasks)
+- **Default Model**: `gpt-5.3-codex` (current default for agentic coding tasks)
 - **CLI Flag**: `--model <model-name>`
 - **Supported Models**:
-  - `gpt-5.2-codex` (default, specialized for agentic coding)
+  - `gpt-5.3-codex` (default, specialized for agentic coding)
+  - `gpt-5.2-codex` (previous specialized coding model)
   - `gpt-5.1-codex` (previous coding model)
   - `gpt-5.1-codex-max` (enhanced coding)
   - `gpt-5-codex` (base GPT-5 coding)
@@ -90,14 +91,20 @@ This MCP server is optimized for **codex CLI v0.75.0 or later** for full feature
 - **MCP Parameter**: `reasoningEffort` parameter in codex tool
 - **Note**: The standalone `--reasoning-effort` flag was removed in v0.50.0, now uses quoted config values for consistency
 
-### 7. Native Resume Functionality
+### 7. Timeout Control
+- **Env Var**: `CODEX_TOOL_TIMEOUT_MS`
+- **Default**: `120000`
+- **MCP Parameter**: `timeoutMs` on the `codex` tool
+- **Behavior**: `timeoutMs` overrides `CODEX_TOOL_TIMEOUT_MS` for a single request while keeping the existing queue and child-abort behavior intact
+
+### 8. Native Resume Functionality
 - **Command**: `codex exec resume <conversation-id>`
 - **Automatic ID Extraction**: Server extracts conversation IDs from CLI output (supports both "session id" and "conversation id" formats)
 - **Regex Pattern**: `/(conversation|session)\s*id\s*:\s*([a-zA-Z0-9-]+)/i`
 - **Fallback Strategy**: Manual context building when resume unavailable
 - **Session Integration**: Seamless integration with session management
 
-### 8. Thread ID Metadata (v0.87.0+)
+### 9. Thread ID Metadata (v0.87.0+)
 - **Output**: Codex CLI emits `threadId` in MCP responses
 - **Server Behavior**: This MCP server surfaces `threadId` in tool response metadata and content element metadata when present. `structuredContent` is only emitted when `STRUCTURED_CONTENT_ENABLED` is truthy and is **disabled by default**.
 - **Regex Pattern**: `/thread\s*id\s*:\s*([a-zA-Z0-9_-]+)/i`
@@ -149,6 +156,9 @@ Codex CLI added static MCP callback URI support. This MCP server forwards the ca
 
 // Execution with new parameters (v0.75.0+)
 ['exec', '--model', selectedModel, '--sandbox', 'workspace-write', '--full-auto', '-C', workingDir, '--skip-git-repo-check', prompt]
+
+// MCP timeout override is handled by the wrapper, not forwarded as a Codex CLI flag
+// { prompt: '...', timeoutMs: 300000 }
 
 // Resume mode (v0.75.0+) - All exec options BEFORE 'resume' subcommand
 ['exec', '--skip-git-repo-check', '-c', 'model="modelName"', '-c', 'model_reasoning_effort="high"', 'resume', conversationId, prompt]
@@ -259,7 +269,7 @@ if (conversationIdMatch) {
    ```bash
    # Edit ~/.codex/config.toml to set preferences
    # Example:
-   # model = "gpt-5.2-codex"
+   # model = "gpt-5.3-codex"
    # model_reasoning_effort = "medium"
    ```
 
@@ -271,7 +281,7 @@ if (conversationIdMatch) {
 ## Performance Optimizations
 
 ### Smart Model Selection
-- **Default to gpt-5.2-codex**: Optimal for agentic coding without configuration
+- **Default to gpt-5.3-codex**: Optimal for agentic coding without configuration
 - **Context-Aware Suggestions**: Better model recommendations based on task type
 - **Consistent Experience**: Same model across session interactions
 
@@ -309,6 +319,7 @@ if (conversationIdMatch) {
 - **Start with default settings** for optimal experience
 - **Use sessions for complex tasks** requiring multiple interactions
 - **Choose reasoning effort wisely** to balance speed and quality
+- **Raise timeoutMs for long-running tasks** instead of changing the global default unnecessarily
 - **Keep CLI updated** for latest features and bug fixes
 
 ## Troubleshooting
@@ -319,7 +330,7 @@ if (conversationIdMatch) {
    - Verify: Check `CODEX_HOME/auth.json` exists
 
 2. **Model Not Available**
-   - Solution: Use default `gpt-5.2-codex` or try alternative models
+   - Solution: Use default `gpt-5.3-codex` or try alternative models
    - Check: Codex CLI documentation for available models
 
 3. **Resume Functionality Not Working**
@@ -327,5 +338,5 @@ if (conversationIdMatch) {
    - Check: Conversation ID extraction in server logs
 
 4. **Performance Issues**
-   - Solution: Lower reasoning effort or use faster models
+   - Solution: Lower reasoning effort, use faster models, or raise `timeoutMs`
    - Monitor: Response times and adjust parameters accordingly

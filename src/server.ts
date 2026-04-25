@@ -17,6 +17,7 @@ import {
 import { handleError } from './errors.js';
 import { toolDefinitions } from './tools/definitions.js';
 import { toolHandlers } from './tools/handlers.js';
+import { isStartupLoggingEnabled } from './runtime-config.js';
 
 export class CodexMcpServer {
   private readonly server: Server;
@@ -94,12 +95,13 @@ export class CodexMcpServer {
               const handler = toolHandlers[name];
               const controller = new AbortController();
               const context = createProgressContext(controller.signal);
+              const timeoutMs = this.getRequestTimeoutMs(name, args);
               operation = handler.execute(args, context);
 
               resolve(
                 await this.withTimeout(
                   operation,
-                  this.toolTimeoutMs,
+                  timeoutMs,
                   controller
                 )
               );
@@ -146,6 +148,23 @@ export class CodexMcpServer {
     return 120_000;
   }
 
+  private getRequestTimeoutMs(name: ToolName, args: unknown): number {
+    if (name !== TOOLS.CODEX || !args || typeof args !== 'object') {
+      return this.toolTimeoutMs;
+    }
+
+    const timeoutMs = (args as { timeoutMs?: unknown }).timeoutMs;
+    if (
+      typeof timeoutMs === 'number' &&
+      Number.isInteger(timeoutMs) &&
+      timeoutMs > 0
+    ) {
+      return timeoutMs;
+    }
+
+    return this.toolTimeoutMs;
+  }
+
   private async withTimeout<T>(
     operation: Promise<T>,
     timeoutMs: number,
@@ -172,6 +191,8 @@ export class CodexMcpServer {
   async start(): Promise<void> {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    console.error(chalk.green(`${this.config.name} started successfully`));
+    if (isStartupLoggingEnabled()) {
+      console.error(chalk.green(`${this.config.name} started successfully`));
+    }
   }
 }

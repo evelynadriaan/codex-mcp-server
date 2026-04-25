@@ -52,6 +52,12 @@ export const toolDefinitions: ToolDefinition[] = [
           description:
             'Static MCP callback URI to pass to Codex via environment (if provided)',
         },
+        timeoutMs: {
+          type: 'integer',
+          description:
+            'Optional per-call timeout in milliseconds. Overrides CODEX_TOOL_TIMEOUT_MS for this request only',
+          minimum: 1,
+        },
       },
       required: ['prompt'],
     },
