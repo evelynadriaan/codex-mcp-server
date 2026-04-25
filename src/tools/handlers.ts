@@ -166,6 +166,7 @@ export class CodexToolHandler {
       const cmdOptions = {
         cwd: useResume ? undefined : resolvedWorkDir,
         envOverride,
+        signal: context.abortSignal,
       };
 
       const result = useStreaming

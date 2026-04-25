@@ -30,11 +30,14 @@ export type ProgressCallback = (message: string) => void;
 export interface CommandOptions {
   envOverride?: ProcessEnv;
   cwd?: string;
+  signal?: AbortSignal;
 }
 
 export interface StreamingCommandOptions extends CommandOptions {
   onProgress?: ProgressCallback;
 }
+
+type KillSignal = 'SIGTERM' | 'SIGKILL';
 
 export async function executeCommand(
   file: string,
@@ -57,8 +60,47 @@ export async function executeCommand(
     if (options?.cwd) {
       spawnOptions.cwd = path.resolve(options.cwd);
     }
+    if (options?.signal && !isWindows) {
+      // Create an isolated process group so abort can terminate the full tree.
+      spawnOptions.detached = true;
+    }
 
     const child = spawn(file, escapedArgs, spawnOptions);
+
+    if (options?.signal) {
+      const killChild = (signal: KillSignal) => {
+        child.kill(signal);
+        if (!isWindows && child.pid) {
+          try {
+            process.kill(-child.pid, signal);
+          } catch {
+            // Ignore if process group no longer exists.
+          }
+        }
+      };
+
+      if (options.signal.aborted) {
+        killChild('SIGTERM');
+        const forceKillTimer = globalThis.setTimeout(
+          () => killChild('SIGKILL'),
+          2000
+        );
+        child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
+      } else {
+        options.signal.addEventListener(
+          'abort',
+          () => {
+            killChild('SIGTERM');
+            const forceKillTimer = globalThis.setTimeout(
+              () => killChild('SIGKILL'),
+              2000
+            );
+            child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
+          },
+          { once: true }
+        );
+      }
+    }
 
     // Close stdin to prevent processes like codex exec from waiting forever for input
     // When spawned with stdio pipe, codex waits for stdin EOF that never arrives
@@ -165,8 +207,47 @@ export async function executeCommandStreaming(
     if (options.cwd) {
       spawnOptions.cwd = path.resolve(options.cwd);
     }
+    if (options.signal && !isWindows) {
+      // Create an isolated process group so abort can terminate the full tree.
+      spawnOptions.detached = true;
+    }
 
     const child = spawn(file, escapedArgs, spawnOptions);
+
+    if (options?.signal) {
+      const killChild = (signal: KillSignal) => {
+        child.kill(signal);
+        if (!isWindows && child.pid) {
+          try {
+            process.kill(-child.pid, signal);
+          } catch {
+            // Ignore if process group no longer exists.
+          }
+        }
+      };
+
+      if (options.signal.aborted) {
+        killChild('SIGTERM');
+        const forceKillTimer = globalThis.setTimeout(
+          () => killChild('SIGKILL'),
+          2000
+        );
+        child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
+      } else {
+        options.signal.addEventListener(
+          'abort',
+          () => {
+            killChild('SIGTERM');
+            const forceKillTimer = globalThis.setTimeout(
+              () => killChild('SIGKILL'),
+              2000
+            );
+            child.once('exit', () => globalThis.clearTimeout(forceKillTimer));
+          },
+          { once: true }
+        );
+      }
+    }
 
     // Close stdin to prevent processes like codex exec from waiting forever for input
     // When spawned with stdio pipe, codex waits for stdin EOF that never arrives

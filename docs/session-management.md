@@ -43,8 +43,9 @@ interface ConversationTurn {
 #### Enhanced Codex Tool
 - **sessionId** (optional): Session ID for conversational context
 - **resetSession** (optional): Reset session history before processing
-- **model** (optional): Model selection (defaults to `gpt-5.2-codex`)
+- **model** (optional): Model selection (defaults to `gpt-5.3-codex`)
 - **reasoningEffort** (optional): Control reasoning depth (low/medium/high)
+- **timeoutMs** (optional): Per-call timeout override for long-running requests
 - **Smart context building**: Uses native resume or fallback context
 - **Robust error handling**: Graceful degradation for various failure modes
 
@@ -63,7 +64,7 @@ interface ConversationTurn {
 
 2. **Enhanced Codex Tool Handler**
    - Native resume functionality with fallback
-   - GPT-5.2-Codex as intelligent default model
+   - GPT-5.3-Codex as intelligent default model
    - Model and reasoning effort parameter support
    - Comprehensive error handling and validation
 
@@ -73,13 +74,13 @@ interface ConversationTurn {
    - Real-time session status tracking
 
 4. **Robust Testing Suite**
-   - 54 comprehensive tests covering all functionality
+   - Comprehensive Jest coverage across lifecycle, sessions, models, and edge cases
    - Edge case handling and error scenario validation
    - Integration testing with Codex CLI interactions
 
 ## Advanced Benefits
 - **Native Codex Resume**: Optimal conversation continuity using Codex CLI's built-in resume feature
-- **Intelligent Defaults**: GPT-5.2-Codex model selection for superior agentic coding assistance
+- **Intelligent Defaults**: GPT-5.3-Codex model selection for superior agentic coding assistance
 - **Production-Ready**: Comprehensive error handling, data validation, and graceful degradation
 - **Enterprise-Scale**: Session management suitable for professional development workflows
 - **Flexible Configuration**: Per-request model and reasoning effort customization
@@ -140,4 +141,3 @@ graph TD
 - **Session Limits**: Maximum 100 concurrent sessions to prevent memory exhaustion
 - **Context Optimization**: Only recent turns (last 2) used for manual context building
 - **Efficient Storage**: Minimal session metadata for optimal memory usage      
-

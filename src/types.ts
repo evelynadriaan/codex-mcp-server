@@ -13,11 +13,12 @@ export const TOOLS = {
 export type ToolName = typeof TOOLS[keyof typeof TOOLS];
 
 // Codex model constants
-export const DEFAULT_CODEX_MODEL = 'gpt-5.3-codex' as const;
+export const DEFAULT_CODEX_MODEL = 'gpt-5.4' as const;
 export const CODEX_DEFAULT_MODEL_ENV_VAR = 'CODEX_DEFAULT_MODEL' as const;
 
 // Available model options (for documentation/reference)
 export const AVAILABLE_CODEX_MODELS = [
+  'gpt-5.4',
   'gpt-5.3-codex',
   'gpt-5.2-codex',
   'gpt-5.1-codex',
@@ -106,6 +107,7 @@ export const CodexToolSchema = z.object({
   fullAuto: z.boolean().optional(),
   workingDirectory: z.string().optional(),
   callbackUri: z.string().optional(),
+  timeoutMs: z.number().int().positive().optional(),
 });
 
 // Review tool schema
@@ -152,5 +154,6 @@ export type ProgressToken = string | number;
 // Context passed to tool handlers for sending progress notifications
 export interface ToolHandlerContext {
   progressToken?: ProgressToken;
+  abortSignal?: AbortSignal;
   sendProgress: (message: string, progress?: number, total?: number) => Promise<void>;
 }
