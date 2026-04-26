@@ -39,20 +39,21 @@ const defaultContext: ToolHandlerContext = {
   sendProgress: async () => {},
 };
 
-const STRUCTURED_CONTENT_ENABLED = ['1', 'true', 'yes', 'on'].includes((process.env.STRUCTURED_CONTENT_ENABLED ?? '').toLowerCase());
+const STRUCTURED_CONTENT_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  (process.env.STRUCTURED_CONTENT_ENABLED ?? '').toLowerCase()
+);
 
 function getToolContext(context?: ToolHandlerContext): ToolHandlerContext {
   return context ?? defaultContext;
 }
 
 function getSelectedModel(model?: string): string {
-  return model || process.env[CODEX_DEFAULT_MODEL_ENV_VAR] || DEFAULT_CODEX_MODEL;
+  return (
+    model || process.env[CODEX_DEFAULT_MODEL_ENV_VAR] || DEFAULT_CODEX_MODEL
+  );
 }
 
-function getCommandResponse(
-  result: CommandResult,
-  fallback: string
-): string {
+function getCommandResponse(result: CommandResult, fallback: string): string {
   return result.stdout || result.stderr || fallback;
 }
 
@@ -64,16 +65,21 @@ class CommandBackedToolHandler {
     context: ToolHandlerContext,
     options?: CommandOptions
   ): Promise<CommandResult> {
+    const commandOptions = {
+      ...options,
+      signal: options?.signal ?? context.abortSignal,
+    };
+
     if (context.progressToken) {
       return executeCommandStreaming('codex', cmdArgs, {
-        ...options,
+        ...commandOptions,
         onProgress: (message) => {
           void context.sendProgress(message);
         },
       });
     }
 
-    return executeCommand('codex', cmdArgs, options);
+    return executeCommand('codex', cmdArgs, commandOptions);
   }
 
   protected createTextResult(
@@ -115,6 +121,7 @@ export class CodexToolHandler extends CommandBackedToolHandler {
         reasoningEffort,
         sandbox,
         fullAuto,
+        bypassApprovals,
         workingDirectory,
         callbackUri,
       }: CodexToolArgs = CodexToolSchema.parse(args);
@@ -175,6 +182,15 @@ export class CodexToolHandler extends CommandBackedToolHandler {
           cmdArgs.push('-c', `model_reasoning_effort="${reasoningEffort}"`);
         }
 
+        if (fullAuto) {
+          cmdArgs.push('--full-auto');
+        }
+
+        // Bypass all approval prompts and sandboxing — use only in externally sandboxed envs
+        if (bypassApprovals) {
+          cmdArgs.push('--dangerously-bypass-approvals-and-sandbox');
+        }
+
         // Add resume subcommand with conversation ID and prompt
         cmdArgs.push('resume', codexConversationId, enhancedPrompt);
       } else {
@@ -199,6 +215,11 @@ export class CodexToolHandler extends CommandBackedToolHandler {
           cmdArgs.push('--full-auto');
         }
 
+        // Bypass all approval prompts and sandboxing — use only in externally sandboxed envs
+        if (bypassApprovals) {
+          cmdArgs.push('--dangerously-bypass-approvals-and-sandbox');
+        }
+
         // Add working directory (v0.75.0+)
         if (resolvedWorkDir) {
           cmdArgs.push('-C', resolvedWorkDir);
@@ -218,8 +239,8 @@ export class CodexToolHandler extends CommandBackedToolHandler {
 
       // Pass cwd to spawn so the child process starts in the correct directory.
       // This works around openai/codex#9084 where -C is ignored by some subcommands.
-      // Skip cwd during resume: sandbox, fullAuto, and workingDirectory are not
-      // applied in resume mode (Codex CLI limitation).
+      // Skip cwd during resume: sandbox and workingDirectory are not applied in
+      // resume mode (Codex CLI limitation).
       const cmdOptions = {
         cwd: useResume ? undefined : resolvedWorkDir,
         envOverride,
@@ -344,21 +365,20 @@ export class PingToolHandler {
   }
 }
 
-export class HelpToolHandler {
-  async execute(args: unknown): Promise<ToolResult> {
+export class HelpToolHandler extends CommandBackedToolHandler {
+  async execute(
+    args: unknown,
+    context?: ToolHandlerContext
+  ): Promise<ToolResult> {
     try {
+      const toolContext = getToolContext(context);
       HelpToolSchema.parse(args);
 
-      const result = await executeCommand('codex', ['--help']);
+      const result = await this.executeCodexCommand(['--help'], toolContext);
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: result.stdout || 'No help information available',
-          },
-        ],
-      };
+      return this.createTextResult(
+        getCommandResponse(result, 'No help information available')
+      );
     } catch (error) {
       if (error instanceof ZodError) {
         throw new ValidationError(TOOLS.HELP, error.message);
@@ -487,7 +507,10 @@ export class ReviewToolHandler extends CommandBackedToolHandler {
       );
 
       // Codex CLI outputs to stderr, so check both stdout and stderr
-      const response = getCommandResponse(result, 'No review output from Codex');
+      const response = getCommandResponse(
+        result,
+        'No review output from Codex'
+      );
 
       // Prepare metadata for dual approach:
       // - content[0]._meta: For Claude Code compatibility (avoids structuredContent bug)
@@ -549,7 +572,10 @@ export class WebSearchToolHandler extends CommandBackedToolHandler {
       const result = await this.executeCodexCommand(cmdArgs, toolContext);
 
       // Get response from stdout or stderr (Codex may output to either)
-      const response = getCommandResponse(result, 'No search output from Codex');
+      const response = getCommandResponse(
+        result,
+        'No search output from Codex'
+      );
 
       // Prepare metadata
       const metadata: Record<string, unknown> = {

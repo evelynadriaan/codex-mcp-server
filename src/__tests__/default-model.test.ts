@@ -50,13 +50,7 @@ describe('Default Model Configuration', () => {
 
     expect(mockedExecuteCommand).toHaveBeenCalledWith(
       'codex',
-      [
-        'exec',
-        '--model',
-        'gpt-5.4',
-        '--skip-git-repo-check',
-        'Test prompt',
-      ],
+      ['exec', '--model', 'gpt-5.4', '--skip-git-repo-check', 'Test prompt'],
       expect.any(Object)
     );
   });
@@ -92,13 +86,7 @@ describe('Default Model Configuration', () => {
 
     expect(mockedExecuteCommand).toHaveBeenCalledWith(
       'codex',
-      [
-        'exec',
-        '--model',
-        'gpt-5.4',
-        '--skip-git-repo-check',
-        'Test prompt',
-      ],
+      ['exec', '--model', 'gpt-5.4', '--skip-git-repo-check', 'Test prompt'],
       expect.any(Object)
     );
   });

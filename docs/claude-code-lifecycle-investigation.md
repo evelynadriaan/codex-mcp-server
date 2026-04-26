@@ -14,6 +14,10 @@ behavior under Claude Code after the following fixes:
 - follow-up timeout override on 2026-04-25:
   - `timeoutMs` added to the `codex` tool schema and MCP definition
   - per-call timeout now overrides `CODEX_TOOL_TIMEOUT_MS`
+- follow-up lifecycle hardening on 2026-04-26:
+  - `review`, `websearch`, and `help` now honor the shared abort path
+  - command argv/stderr logging is now gated behind `CODEX_MCP_DEBUG_COMMANDS`
+  - `bypassApprovals` is exposed and validated end-to-end
 
 ## Executive Summary
 
@@ -38,7 +42,7 @@ What is not a server bug:
 
 | Scenario | Command shape | Result | Notes |
 | --- | --- | --- | --- |
-| Direct stdio lifecycle tests | `npm test -- --runInBand src/__tests__/mcp-lifecycle.test.ts --runTestsByPath` | Pass | Covers sequential calls, concurrent serialization, and timeout recovery |
+| Direct stdio lifecycle tests | `npm test -- --runInBand src/__tests__/mcp-lifecycle.test.ts --runTestsByPath` | Pass | Covers sequential calls, concurrent serialization, codex timeout recovery, and review timeout recovery |
 | Claude print, single live Codex call | `claude -p --allowedTools mcp__codex__codex --tools "" ...` | Pass in 20s | Returned `LIVE_OK` |
 | Claude print, two sequential live Codex calls | Same as above, but force two tool calls | Pass in 34s | Returned `FIRST_OK` then `SECOND_OK` |
 | Claude print, resumed session, single live Codex call | `claude -p --resume <session-id> ...` from original local path | Pass in 30s | Returned `RESUMED_LIVE_OK` |

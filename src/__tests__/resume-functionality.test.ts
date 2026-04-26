@@ -56,13 +56,7 @@ describe('Codex Resume Functionality', () => {
 
     expect(mockedExecuteCommand).toHaveBeenCalledWith(
       'codex',
-      [
-        'exec',
-        '--model',
-        'gpt-5.4',
-        '--skip-git-repo-check',
-        'First message',
-      ],
+      ['exec', '--model', 'gpt-5.4', '--skip-git-repo-check', 'First message'],
       expect.any(Object)
     );
   });

@@ -4,6 +4,7 @@ import path from 'node:path';
 import chalk from 'chalk';
 import { CommandExecutionError } from '../errors.js';
 import { type CommandResult } from '../types.js';
+import { isCommandLoggingEnabled } from '../runtime-config.js';
 
 type ProcessEnv = Record<string, string | undefined>;
 
@@ -35,7 +36,7 @@ export interface CommandOptions {
   onProgress?: ProgressCallback;
 }
 
-export interface StreamingCommandOptions extends CommandOptions {}
+export type StreamingCommandOptions = CommandOptions;
 
 type StreamName = 'stdout' | 'stderr';
 type SpawnedChildProcess = ReturnType<typeof spawn>;
@@ -47,7 +48,9 @@ function getEscapedArgs(args: string[]): string[] {
   return isWindows ? args.map(escapeArgForWindows) : args;
 }
 
-function getSpawnOptions(options: CommandOptions = {}): SpawnOptionsWithoutStdio {
+function getSpawnOptions(
+  options: CommandOptions = {}
+): SpawnOptionsWithoutStdio {
   const spawnOptions: SpawnOptionsWithoutStdio = {
     shell: isWindows,
     env: options.envOverride
@@ -120,7 +123,8 @@ function appendOutput(
   if (currentValue.length + chunk.length > MAX_BUFFER_SIZE) {
     console.error(chalk.yellow(`Warning: ${streamName} truncated at 10MB`));
     return {
-      nextValue: currentValue + chunk.slice(0, MAX_BUFFER_SIZE - currentValue.length),
+      nextValue:
+        currentValue + chunk.slice(0, MAX_BUFFER_SIZE - currentValue.length),
       truncated: true,
     };
   }
@@ -166,8 +170,11 @@ export async function executeCommand(
     const escapedArgs = getEscapedArgs(args);
     const isStreaming = !!options.onProgress;
     const logLabel = isStreaming ? 'Executing (streaming):' : 'Executing:';
+    const commandLoggingEnabled = isCommandLoggingEnabled();
 
-    console.error(chalk.blue(logLabel), file, escapedArgs.join(' '));
+    if (commandLoggingEnabled) {
+      console.error(chalk.blue(logLabel), file, escapedArgs.join(' '));
+    }
 
     const child = spawn(file, escapedArgs, getSpawnOptions(options));
     bindAbortSignal(child, options.signal);
@@ -213,12 +220,12 @@ export async function executeCommand(
         }
       }
 
-      if (!isStreaming && stderr) {
+      if (!isStreaming && stderr && commandLoggingEnabled) {
         console.error(chalk.yellow('Command stderr:'), stderr);
       }
 
       if (code === 0 || stdout || stderr) {
-        if (code !== 0 && (stdout || stderr)) {
+        if (code !== 0 && (stdout || stderr) && commandLoggingEnabled) {
           console.error(
             chalk.yellow('Command failed but produced output, using output')
           );
@@ -245,14 +252,7 @@ export async function executeCommand(
     });
 
     child.on('error', (error) => {
-      reject(
-        createCommandError(
-          file,
-          args,
-          'Command execution failed',
-          error
-        )
-      );
+      reject(createCommandError(file, args, 'Command execution failed', error));
     });
   });
 }

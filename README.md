@@ -83,6 +83,7 @@ Use review with uncommitted true to review my local changes
 ```
 Use codex with model "o3" and reasoningEffort "high" for complex analysis
 Use codex with fullAuto true and sandbox "workspace-write" for automated tasks
+Use codex with bypassApprovals true only inside an externally sandboxed environment
 Use codex with timeoutMs 300000 for long-running tasks
 Use codex with callbackUri "http://localhost:1234/callback" for static callbacks
 Use codex to return structuredContent with threadId metadata when available
@@ -111,9 +112,12 @@ Use websearch with query "React Server Components" and searchDepth "full"
 - **[Claude Code Lifecycle Investigation](docs/claude-code-lifecycle-investigation.md)** — Reproductions, fixes, and what Claude tears down itself
 
 ## Environment Variables
+- `CODEX_DEFAULT_MODEL`: Override the default model for `codex` and `review` (default `gpt-5.4`)
 - `CODEX_MCP_CALLBACK_URI`: Static MCP callback URI passed to Codex when set (overridden by `callbackUri` tool arg)
-- `CODEX_TOOL_TIMEOUT_MS`: Per-call timeout in milliseconds for the `codex` tool queue (default `120000`)
+- `CODEX_TOOL_TIMEOUT_MS`: Timeout in milliseconds for serialized tool calls (default `120000`)
+- `STRUCTURED_CONTENT_ENABLED`: Emit `structuredContent` alongside text metadata when truthy
 - `CODEX_MCP_DEBUG_STARTUP`: Set to `1`, `true`, `yes`, or `on` to emit the startup banner on stderr for debugging
+- `CODEX_MCP_DEBUG_COMMANDS`: Set to `1`, `true`, `yes`, or `on` to emit command argv and stderr for debugging
 
 `timeoutMs` on the `codex` tool overrides `CODEX_TOOL_TIMEOUT_MS` for a single request.
 

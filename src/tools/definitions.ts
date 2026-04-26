@@ -14,7 +14,7 @@ export const toolDefinitions: ToolDefinition[] = [
         sessionId: {
           type: 'string',
           description:
-            'Optional session ID for conversational context. Note: when resuming a session, sandbox/fullAuto/workingDirectory parameters are not applied (CLI limitation)',
+            'Optional session ID for conversational context. Note: when resuming a session, sandbox and workingDirectory are not applied (CLI limitation)',
         },
         resetSession: {
           type: 'boolean',
@@ -41,6 +41,11 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'boolean',
           description:
             'Enable full-auto mode: sandboxed automatic execution without approval prompts (equivalent to -a on-request --sandbox workspace-write)',
+        },
+        bypassApprovals: {
+          type: 'boolean',
+          description:
+            'Skip all approval prompts and disable sandboxing. Extremely dangerous; use only in externally sandboxed environments',
         },
         workingDirectory: {
           type: 'string',

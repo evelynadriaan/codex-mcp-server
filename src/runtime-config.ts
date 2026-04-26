@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
 export const STARTUP_LOG_ENV_VAR = 'CODEX_MCP_DEBUG_STARTUP' as const;
+export const COMMAND_LOG_ENV_VAR = 'CODEX_MCP_DEBUG_COMMANDS' as const;
 
 function getPackageJsonPath(entryScriptPath = process.argv[1]): string {
   if (entryScriptPath) {
@@ -37,13 +38,22 @@ export const SERVER_CONFIG = {
   version: getServerVersion(),
 } as const;
 
-export function isStartupLoggingEnabled(
-  env: Record<string, string | undefined> = process.env
-): boolean {
-  const rawValue = env[STARTUP_LOG_ENV_VAR];
+function isTruthyDebugFlag(rawValue: string | undefined): boolean {
   if (!rawValue) {
     return false;
   }
 
   return ['1', 'true', 'yes', 'on'].includes(rawValue.toLowerCase());
+}
+
+export function isStartupLoggingEnabled(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  return isTruthyDebugFlag(env[STARTUP_LOG_ENV_VAR]);
+}
+
+export function isCommandLoggingEnabled(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  return isTruthyDebugFlag(env[COMMAND_LOG_ENV_VAR]);
 }

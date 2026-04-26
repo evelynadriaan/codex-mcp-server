@@ -92,7 +92,7 @@ export const SandboxMode = z.enum([
 ]);
 
 // Zod schemas for tool arguments
-export const CodexToolSchema = z.object({
+const CodexToolBaseSchema = z.object({
   prompt: z.string(),
   sessionId: z
     .string()
@@ -106,9 +106,30 @@ export const CodexToolSchema = z.object({
   reasoningEffort: z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
   sandbox: SandboxMode.optional(),
   fullAuto: z.boolean().optional(),
+  bypassApprovals: z.boolean().optional(),
   workingDirectory: z.string().optional(),
   callbackUri: z.string().optional(),
   timeoutMs: z.number().int().positive().optional(),
+});
+
+export const CodexToolSchema = CodexToolBaseSchema.superRefine((value, ctx) => {
+  if (value.bypassApprovals && value.sandbox) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['bypassApprovals'],
+      message:
+        'bypassApprovals cannot be combined with sandbox because it disables sandboxing entirely',
+    });
+  }
+
+  if (value.bypassApprovals && value.fullAuto) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['bypassApprovals'],
+      message:
+        'bypassApprovals cannot be combined with fullAuto because fullAuto requires sandboxed execution',
+    });
+  }
 });
 
 // Review tool schema

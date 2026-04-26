@@ -72,6 +72,17 @@ describe('Codex MCP Server', () => {
       expect(codexTool?.inputSchema.properties).toHaveProperty('timeoutMs');
     });
 
+    test('codex tool should expose bypass approvals parameter', () => {
+      const codexTool = toolDefinitions.find(
+        (tool) => tool.name === TOOLS.CODEX
+      );
+      const bypassApprovals = codexTool?.inputSchema.properties
+        .bypassApprovals as { type?: string; description?: string } | undefined;
+
+      expect(bypassApprovals?.type).toBe('boolean');
+      expect(bypassApprovals?.description).toContain('externally sandboxed');
+    });
+
     test('ping tool should have optional message parameter', () => {
       const pingTool = toolDefinitions.find((tool) => tool.name === TOOLS.PING);
       expect(pingTool).toBeDefined();

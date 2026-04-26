@@ -1,285 +1,138 @@
-# codex-mcp-server — Architecture & Bug Fixes
+# codex-mcp-server: Current Architecture and Hardening Notes
 
-> Last updated: 2026-04-25  
-> All 88 tests passing. Lint, build, format green.
-
----
-
-## What It Does
-
-`codex-mcp-server` is an MCP (Model Context Protocol) server that wraps the [Codex CLI](https://github.com/openai/codex). It translates JSON-RPC tool calls from an MCP client (e.g. Claude Code) into `codex exec` child process invocations and streams output back.
-
-**Transport:** stdio (newline-delimited JSON-RPC over stdin/stdout)  
-**Tools exposed:** `codex`, `review`, `ping`, `help`, `listSessions`, `websearch`
-
----
+Current-state reference for the server architecture and the lifecycle fixes
+landed so far.
 
 ## Source Layout
 
-```
+```text
 src/
-├── index.ts                  entry point — creates and starts CodexMcpServer
-├── server.ts                 MCP server lifecycle, request routing, call queue, timeouts
-├── types.ts                  Zod schemas, tool argument types, shared constants
-├── errors.ts                 typed error classes (ValidationError, ToolExecutionError, etc.)
-├── runtime-config.ts         reads STARTUP_LOGGING_ENABLED env var
+├── index.ts
+├── server.ts
+├── runtime-config.ts
+├── types.ts
+├── errors.ts
 ├── tools/
-│   ├── definitions.ts        MCP tool descriptors (name, description, inputSchema)
-│   └── handlers.ts           one handler class per tool; spawns codex CLI processes
+│   ├── definitions.ts
+│   └── handlers.ts
 ├── utils/
-│   └── command.ts            executeCommand / executeCommandStreaming — process spawn helpers
+│   └── command.ts
 └── session/
-    └── storage.ts            InMemorySessionStorage — tracks multi-turn Codex conversations
+    └── storage.ts
 ```
 
----
+## Core Execution Model
 
-## Architecture
+1. The MCP stdio transport receives `tools/call`.
+2. `server.ts` serializes every call through `callQueue`.
+3. A per-request `AbortController` is created.
+4. `withTimeout()` races the tool handler against the configured timeout.
+5. On timeout, the controller aborts and the queue slot remains blocked until
+   the underlying operation actually settles.
 
-### Request Lifecycle (server.ts)
+This serialization is intentional. It avoids the original stdio race where two
+concurrent child processes could corrupt the JSON-RPC stream.
 
-1. MCP client sends `tools/call` JSON-RPC request over stdin
-2. `CodexMcpServer.setupHandlers()` receives it via `@modelcontextprotocol/sdk`
-3. Request is pushed onto **`callQueue`** (a `Promise<void>` chain) — this serializes all calls
-4. Inside the queue slot:
-   - An `AbortController` is created for this call
-   - A `ToolHandlerContext` is built (holds `progressToken`, `abortSignal`, `sendProgress`)
-   - The appropriate `ToolHandler.execute()` is called
-   - `withTimeout()` races the operation against a deadline; on timeout it calls `controller.abort()`
-5. Handler result is returned to the MCP client as a `ToolResult`
-6. If the handler throws, a structured error response is returned (never crashes the server)
-7. The queue slot releases only after the child process fully exits (prevents backpressure)
+## Command Execution Model
 
-### Call Queue (critical for stability)
+`utils/command.ts` is the shared spawn path for command-backed tools.
 
-```typescript
-private callQueue: Promise<void> = Promise.resolve();
+Current behavior:
 
-// Each incoming call appends to the chain:
-this.callQueue = this.callQueue.then(async () => {
-  // ... run the tool ...
-  await operation?.then(() => undefined, () => undefined); // wait for child exit
-});
-```
+- closes child stdin immediately with `child.stdin?.end()`
+- creates a detached process group when abort support is in use
+- sends `SIGTERM`, then `SIGKILL` after a short grace period
+- buffers stdout and stderr up to 10MB
+- treats `stdout` or `stderr` output as a usable command result even if the exit
+  code is non-zero, because Codex often writes primary output to stderr
+- keeps command argv and stderr logging disabled by default
 
-This ensures calls are fully serialized. The MCP stdio transport cannot handle concurrent writes to stdout, and rapid sequential calls were previously racing on the same stream.
+## Current Tool Coverage
 
-### Timeout & Abort Chain
+Command-backed tools:
 
-```
-withTimeout(operation, timeoutMs, controller)
-  → fires controller.abort() at deadline
-    → AbortSignal propagates to executeCommand / executeCommandStreaming
-      → child.kill('SIGTERM')
-      → child.kill('SIGKILL') after 2000ms if still alive
-```
+- `codex`
+- `review`
+- `websearch`
+- `help`
 
-Default timeout: `CODEX_TOOL_TIMEOUT_MS` env var, fallback 120,000ms.  
-Per-call override: `timeoutMs` parameter in the tool call.
+Non-command-backed tools:
 
-### Tool Handlers (tools/handlers.ts)
+- `ping`
+- `listSessions`
 
-| Handler | Spawns | Notes |
-|---|---|---|
-| `CodexToolHandler` | `codex exec [args] <prompt>` | Supports sessions, resume, sandbox, fullAuto |
-| `ReviewToolHandler` | `codex review [args]` | Code diff review via Codex |
-| `WebSearchToolHandler` | `codex --search exec <prompt>` | Enables Codex's web_search tool |
-| `PingToolHandler` | nothing | Returns a message; used to health-check the server |
-| `HelpToolHandler` | `codex --help` | Returns CLI help text |
-| `ListSessionsToolHandler` | nothing | Lists in-memory sessions |
+All command-backed tools now honor the shared abort path.
 
-### Session Storage (session/storage.ts)
+## Hardening Fixes Already Landed
 
-`InMemorySessionStorage` maps caller-provided `sessionId` strings to `SessionData` objects.  
-Each session tracks:
-- Conversation turns (prompt + response)
-- The Codex-assigned `codexConversationId` (used for `codex exec resume <id>`)
-- TTL: 24 hours; max 100 sessions (LRU eviction)
+### Concurrent-call serialization
 
-On the first call with a `sessionId`, the server creates or finds the session. On subsequent calls, it passes `--resume <conversationId>` to `codex exec`, letting Codex maintain its own conversation context natively.
+`callQueue` ensures only one `tools/call` handler runs at a time.
 
-### Process Spawn (utils/command.ts)
+### Queue does not release before child exit
 
-Both `executeCommand` and `executeCommandStreaming` share the same spawn pattern:
+The queue slot stays blocked until the underlying operation settles, including
+timed-out calls.
 
-- `shell: false` on Linux/macOS (no intermediate shell process)
-- `detached: true` when an `AbortSignal` is provided (creates process group for clean kill)
-- `child.stdin?.end()` — **immediately closes stdin** on the child process
-- On abort: `child.kill('SIGTERM')`, then `process.kill(-child.pid, 'SIGTERM')` on the group, then `SIGKILL` after 2000ms
-- stdout + stderr both buffered up to 10MB; truncation is logged
-- Exit condition: `code === 0 OR stdout OR stderr` — because `codex` writes primary output to stderr
+### Non-interactive stdin handling
 
----
+Spawned Codex children get EOF on stdin immediately so they do not hang waiting
+for additional input.
 
-## Bug Fixes
+### Timeout recovery
 
-### 1. Concurrent Call Race (callQueue)
+- global timeout via `CODEX_TOOL_TIMEOUT_MS`
+- per-call timeout override via `timeoutMs` on the `codex` tool
+- shared abort path now applies to `codex`, `review`, `websearch`, and `help`
 
-**Commit:** `ac66ca1 fix: serialize concurrent tools/call requests to prevent stdio race`
+### Startup and command logging cleanup
 
-**Bug:** The MCP server had no call queue. If two tool calls arrived in rapid succession, both would execute concurrently, writing to stdout simultaneously. This corrupted the JSON-RPC stream, causing the MCP client to lose sync and report "Not connected".
+- startup banner is gated by `CODEX_MCP_DEBUG_STARTUP`
+- command argv/stderr logging is gated by `CODEX_MCP_DEBUG_COMMANDS`
 
-**Fix:** All calls are now appended to a `Promise` chain (`callQueue`). Each new call waits for the previous one to fully complete before starting. The queue slot is released only after the child process exits (see fix #2).
+### Default model drift fix
 
----
+Default model is `gpt-5.4`, with `CODEX_DEFAULT_MODEL` as the override.
 
-### 2. Queue Slot Released Before Child Exit
+### `bypassApprovals` contract completion
 
-**Commit:** `a1cd967 fix: block queue until timed out codex child exits`
+- exposed in the MCP tool definition
+- forwarded on new and resumed Codex executions
+- rejected when combined with `sandbox`
+- rejected when combined with `fullAuto`
 
-**Bug:** After the first fix, the queue slot was released as soon as `resolve()` was called — but the spawned child process was still running. The next queued call would start while the previous `codex exec` process was still writing to its own stdout/stderr, creating a second race.
+## Session Model
 
-**Fix:** The `finally` block in the queue handler now explicitly awaits the operation promise (ignoring errors) before the queue slot is released:
+- sessions are in-memory only
+- caller provides `sessionId`
+- server stores recent turns plus the Codex conversation ID when available
+- native Codex resume is preferred
+- fallback context reconstruction uses recent turns when native resume is not
+  available
 
-```typescript
-finally {
-  await operation?.then(() => undefined, () => undefined);
-}
-```
+## Current Environment Variables
 
-This ensures the previous child process has fully exited before the next call starts.
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `CODEX_DEFAULT_MODEL` | Override the default model for `codex` and `review` | `gpt-5.4` |
+| `CODEX_MCP_CALLBACK_URI` | Default callback URI for `codex` requests | unset |
+| `CODEX_TOOL_TIMEOUT_MS` | Timeout for serialized tool calls | `120000` |
+| `STRUCTURED_CONTENT_ENABLED` | Emit `structuredContent` | unset / false |
+| `CODEX_MCP_DEBUG_STARTUP` | Emit startup banner | unset / false |
+| `CODEX_MCP_DEBUG_COMMANDS` | Emit command argv/stderr | unset / false |
 
----
+## Intentional Constraints
 
-### 3. Server Exiting Between Tool Calls
+- The queue still serializes all tool calls, not only Codex-heavy ones.
+- `timeoutMs` is only a `codex` tool argument.
+- `sandbox` and `workingDirectory` are not applied on resumed sessions.
+- Session state is not persisted across server restarts.
 
-**Commit:** `ec091db fix: keep server alive between tool calls`
+## Verification Gate
 
-**Bug:** An earlier diagnostic code path caused the server process to call `process.exit()` on idle or on certain error conditions, which terminated the MCP server. Callers would then get "Not connected" on the next tool call.
-
-**Fix:** Removed all `process.exit()` calls from normal operation paths. The server now only exits if the MCP transport itself closes (i.e., the parent process closes stdin). Errors from tool calls are caught and returned as error-flagged `ToolResult` objects.
-
----
-
-### 4. stdin Never Closed — codex exec Hangs
-
-**Present in:** `utils/command.ts`, line `child.stdin?.end()`
-
-**Bug:** When `codex exec` is spawned with `stdio: 'pipe'`, it detects that stdin is a pipe and enters an interactive "Reading additional input from stdin..." loop, waiting indefinitely for EOF. This caused every `codex exec` call to hang until the server process died.
-
-**Fix:** `child.stdin?.end()` is called immediately after spawn, sending EOF to the child's stdin. `codex exec` then detects EOF and exits conversational mode, running the provided prompt non-interactively.
-
----
-
-### 5. No Timeout on Tool Calls — Queue Starvation
-
-**Commits:** `358c106` (initial), `b1765ef fix: add per-call codex timeout override`
-
-**Bug:** If a `codex exec` call hung (e.g., network timeout, model unavailability), it would block the call queue indefinitely. All subsequent tool calls would queue up and never run. From the caller's perspective, the server appeared to accept calls but never respond.
-
-**Fix 1 (`CODEX_TOOL_TIMEOUT_MS`):** A configurable timeout (default 120s, now set to 300s via env var) triggers `controller.abort()`, which kills the child process and rejects the queued call. The queue unblocks.
-
-**Fix 2 (`timeoutMs` parameter):** Callers can override the timeout per-call via the `timeoutMs` field in the tool input. `getRequestTimeoutMs()` in `server.ts` reads this and passes it to `withTimeout()`. Useful for large tasks that legitimately need more time.
-
----
-
-### 6. DEFAULT_CODEX_MODEL Stale (types.ts)
-
-**Fixed:** 2026-04-25
-
-**Bug:** `DEFAULT_CODEX_MODEL` was still set to `'gpt-5.3-codex'`, which has been migrated to `gpt-5.4`. Any call that didn't pass an explicit `model` parameter would fall back to a non-existent model alias.
-
-**Fix:** Updated `DEFAULT_CODEX_MODEL = 'gpt-5.4'` and added `'gpt-5.4'` to `AVAILABLE_CODEX_MODELS`.
-
----
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `CODEX_TOOL_TIMEOUT_MS` | 120000 | Default timeout (ms) for all tool calls |
-| `CODEX_DEFAULT_MODEL` | (unset) | Override default model; falls back to `DEFAULT_CODEX_MODEL` |
-| `CODEX_MCP_CALLBACK_URI` | (unset) | Optional callback URI passed to `codex exec` |
-| `STRUCTURED_CONTENT_ENABLED` | (unset) | Set to `1`/`true` to enable `structuredContent` in responses |
-| `STARTUP_LOGGING_ENABLED` | (unset) | Set to `1`/`true` to log server start message |
-
-### Codex CLI Config (~/.codex/config.toml)
-
-```toml
-model = "gpt-5.4"
-model_reasoning_effort = "xhigh"
-approval_policy = "never"   # non-interactive; required for MCP use
-
-[notice.model_migrations]
-"gpt-5.2-codex" = "gpt-5.3-codex"
-"gpt-5.1-codex-mini" = "gpt-5.4"
-"gpt-5.3-codex" = "gpt-5.4"
-```
-
-`approval_policy = "never"` is critical — without it, `codex exec` prompts for approval on file writes, which hangs the process when stdin is closed.
-
-### MCP Registration
+Use the current repo state, not historical green claims:
 
 ```bash
-claude mcp remove codex -s user
-claude mcp add codex -s user \
-  -e CODEX_TOOL_TIMEOUT_MS=300000 \
-  -- codex-mcp-server
-```
-
-Verify: `claude mcp list`
-
-### Building & Installing
-
-```bash
-cd /media/nicolai/ThickGbs/Laudio/codex-mcp-server
-npm install
 npm run build
-npm install -g .   # updates /home/nicolai/.local/npm/bin/codex-mcp-server
+npm test -- --runInBand
 ```
-
----
-
-## Rules for Callers (Claude / MCP clients)
-
-### Sequential Only — No Parallel Calls
-
-**Never fire two `mcp__codex__codex` calls in the same turn.** The server serializes them internally, but Claude Code's session lifecycle (SIGINT/SIGTERM at session boundaries) means a second call can hit a restarting server and get "Not connected".
-
-Always await one call fully before issuing the next.
-
-### Recommended Call Parameters
-
-```json
-{
-  "prompt": "Self-contained task description with exact file paths",
-  "model": "gpt-5.4",
-  "workingDirectory": "/absolute/path/to/project",
-  "fullAuto": true,
-  "timeoutMs": 300000
-}
-```
-
-### Retry Pattern
-
-1. If "Not connected": wait 8–10s, run `ping`, retry once
-2. If timeout: wait for server reconnect, retry with `timeoutMs: 480000`
-3. Never retry in a loop — max 2 attempts per task, then escalate to user
-
-### Health Check
-
-```
-mcp__codex__ping → { message: "pong" }
-```
-
-Run this before the first Codex call in a session.
-
----
-
-## Deprecated / Retired Models
-
-Do not use these — they are all migrated to `gpt-5.4`:
-
-- `gpt-5.3-codex`
-- `gpt-5.2-codex`  
-- `gpt-5.1-codex-mini`
-
----
-
-## Source Repository
-
-Fork: `https://github.com/evelynadriaan/codex-mcp-server`  
-Branch: `fix/server-lifecycle`  
-Local path: `/media/nicolai/ThickGbs/Laudio/codex-mcp-server`

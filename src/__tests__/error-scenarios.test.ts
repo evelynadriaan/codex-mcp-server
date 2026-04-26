@@ -111,6 +111,30 @@ describe('Error Handling Scenarios', () => {
     expect(mockedExecuteCommand).not.toHaveBeenCalled();
   });
 
+  test('should reject bypassApprovals when sandbox is also set', async () => {
+    await expect(
+      handler.execute({
+        prompt: 'Test prompt',
+        sandbox: 'workspace-write',
+        bypassApprovals: true,
+      })
+    ).rejects.toThrow(ValidationError);
+
+    expect(mockedExecuteCommand).not.toHaveBeenCalled();
+  });
+
+  test('should reject bypassApprovals when fullAuto is also set', async () => {
+    await expect(
+      handler.execute({
+        prompt: 'Test prompt',
+        fullAuto: true,
+        bypassApprovals: true,
+      })
+    ).rejects.toThrow(ValidationError);
+
+    expect(mockedExecuteCommand).not.toHaveBeenCalled();
+  });
+
   test('should handle corrupted session data', async () => {
     const sessionId = sessionStorage.createSession();
 
