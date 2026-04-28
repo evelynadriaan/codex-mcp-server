@@ -18,7 +18,7 @@ For each session, the server keeps:
 - `id`
 - `createdAt`
 - `lastAccessedAt`
-- `turns`
+- `turnCount`
 - `codexConversationId` when Codex CLI emits one
 
 Limits:

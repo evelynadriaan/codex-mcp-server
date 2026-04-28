@@ -210,7 +210,7 @@ export async function executeCommand(
     });
 
     child.on('close', (code) => {
-      if (options.onProgress && (stdout || stderr)) {
+      if (options.onProgress && (stdout || stderr) && !options.signal?.aborted) {
         const finalOutput = stdout || stderr;
         const lastChunk = finalOutput.slice(-500);
         if (lastChunk.trim()) {
